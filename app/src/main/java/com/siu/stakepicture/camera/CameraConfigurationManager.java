@@ -16,16 +16,18 @@
 
 package com.siu.stakepicture.camera;
 
+import android.app.Activity;
 import android.content.Context;
 import android.graphics.Point;
 import android.hardware.Camera;
 import android.util.Log;
 import android.view.Display;
+import android.view.Surface;
 import android.view.WindowManager;
 
 import java.util.regex.Pattern;
 
-final class CameraConfigurationManager {
+public class CameraConfigurationManager {
 
     private static final String TAG = CameraConfigurationManager.class.getSimpleName();
 
@@ -34,62 +36,119 @@ final class CameraConfigurationManager {
 
     private static final Pattern COMMA_PATTERN = Pattern.compile(",");
 
-    private final Context context;
+    private final Activity activity;
     private Point screenResolution;
-    private Point cameraResolution;
+    private Point previewResolution;
+    private Point pictureResolution;
 
-
-
-    CameraConfigurationManager(Context context) {
-        this.context = context;
+    CameraConfigurationManager(Activity activity) {
+        this.activity = activity;
     }
 
-    void initFromCameraParameters(Camera camera) {
+    /**
+     * 初始化相机参数：根据预览界面大小获取预览尺寸
+     *
+     * @param camera
+     * @param width
+     * @param height
+     */
+    public void initFromCameraParameters(Camera camera, int width, int height) {
         Camera.Parameters parameters = camera.getParameters();
 
-        WindowManager manager = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
+        WindowManager manager = (WindowManager) activity.getSystemService(Context.WINDOW_SERVICE);
         Display display = manager.getDefaultDisplay();
         screenResolution = new Point(display.getWidth(), display.getHeight());
         Log.d(TAG, "Screen resolution: " + screenResolution);
 
         Point screenResolutionForCamera = new Point();
-        screenResolutionForCamera.x = screenResolution.x;
-        screenResolutionForCamera.y = screenResolution.y;
-
+        if (width == 0 || height == 0) {
+            screenResolutionForCamera.x = screenResolution.x;
+            screenResolutionForCamera.y = screenResolution.y;
+        } else {
+            screenResolutionForCamera.x = width;
+            screenResolutionForCamera.y = height;
+        }
 
         if (screenResolution.x < screenResolution.y) {
             screenResolutionForCamera.x = screenResolution.y;
             screenResolutionForCamera.y = screenResolution.x;
         }
 
-        cameraResolution = getCameraResolution(parameters, screenResolutionForCamera);
-
-
+        previewResolution = getPreviewResolution(parameters, screenResolutionForCamera);
+        pictureResolution = getPictureResolution(parameters, screenResolutionForCamera);
     }
 
-
-    void setDesiredCameraParameters(Camera camera) {
+    /**
+     * 设置相机参数：预览尺寸，焦距，预览方向
+     *
+     * @param camera
+     * @param cameraId
+     */
+    public void setDesiredCameraParameters(Camera camera, int cameraId) {
         Camera.Parameters parameters = camera.getParameters();
-        Log.d(TAG, "Setting preview size: " + cameraResolution);
-        parameters.setPreviewSize(cameraResolution.x, cameraResolution.y);
-
+        parameters.setPreviewSize(previewResolution.x, previewResolution.y);
+        parameters.setPictureSize(pictureResolution.x, pictureResolution.y);
         setZoom(parameters);
-        //setSharpness(parameters);
-        //modify here
-        camera.setDisplayOrientation(90);
+        setCameraDisplayOrientation(camera, cameraId);
         camera.setParameters(parameters);
     }
 
-    Point getCameraResolution() {
-        return cameraResolution;
+    /**
+     * 根据Activity方向设置预览方向
+     *
+     * @param camera
+     * @param cameraId
+     */
+    private void setCameraDisplayOrientation(Camera camera, int cameraId) {
+        Camera.CameraInfo info = new Camera.CameraInfo();
+        Camera.getCameraInfo(cameraId, info);
+        int rotation = activity.getWindowManager().getDefaultDisplay().getRotation();
+        int degrees = 0;
+        switch (rotation) {
+            case Surface.ROTATION_0:
+                degrees = 0;
+                break;
+            case Surface.ROTATION_90:
+                degrees = 90;
+                break;
+            case Surface.ROTATION_180:
+                degrees = 180;
+                break;
+            case Surface.ROTATION_270:
+                degrees = 270;
+                break;
+        }
+        int result;
+        if (info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT) {
+            result = (info.orientation + degrees) % 360;
+            result = (360 - result) % 360;   // compensate the mirror
+        } else {
+            // back-facing
+            result = (info.orientation - degrees + 360) % 360;
+        }
+        camera.setDisplayOrientation(result);
     }
 
-    Point getScreenResolution() {
+    public Point getPreviewResolution() {
+        return previewResolution;
+    }
+
+    public Point getPictureResolution() {
+        return pictureResolution;
+    }
+
+    public Point getScreenResolution() {
         return screenResolution;
     }
 
-
-    private static Point getCameraResolution(Camera.Parameters parameters, Point screenResolution) {
+    /**
+     * 获取最佳预览尺寸
+     *
+     * @param parameters
+     * @param screenResolution
+     * @return
+     */
+    private Point getPreviewResolution(Camera.Parameters parameters, Point screenResolution) {
 
         String previewSizeValueString = parameters.get("preview-size-values");
         // saw this on Xperia
@@ -101,7 +160,7 @@ final class CameraConfigurationManager {
 
         if (previewSizeValueString != null) {
             Log.d(TAG, "preview-size-values parameter: " + previewSizeValueString);
-            cameraResolution = findBestPreviewSizeValue(previewSizeValueString, screenResolution);
+            cameraResolution = findBestSizeValue(previewSizeValueString, screenResolution);
         }
 
         if (cameraResolution == null) {
@@ -115,11 +174,48 @@ final class CameraConfigurationManager {
         return cameraResolution;
     }
 
-    private static Point findBestPreviewSizeValue(CharSequence previewSizeValueString, Point screenResolution) {
+    /**
+     * 找出最佳拍摄尺寸
+     *
+     * @param parameters
+     * @param screenSize
+     * @return
+     */
+    private Point getPictureResolution(Camera.Parameters parameters, Point screenSize) {
+        String pictureSizeValueString = parameters.get("picture-size-values");
+        // saw this on Xperia
+        if (pictureSizeValueString == null) {
+            pictureSizeValueString = parameters.get("picture-size-value");
+        }
+
+        Point pictureSize = null;
+
+        if (pictureSizeValueString != null) {
+            pictureSize = findBestSizeValue(pictureSizeValueString, screenSize);
+        }
+
+        if (pictureSize == null) {
+            // Ensure that the camera resolution is a multiple of 8, as the screen may not be.
+            pictureSize = new Point(
+                    (screenSize.x >> 3) << 3,
+                    (screenSize.y >> 3) << 3);
+        }
+
+        return pictureSize;
+    }
+
+    /**
+     * 获取最近尺寸：比例最接近的
+     *
+     * @param sizeValueString
+     * @param screenResolution
+     * @return
+     */
+    private static Point findBestSizeValue(CharSequence sizeValueString, Point screenResolution) {
         int bestX = 0;
         int bestY = 0;
         int diff = Integer.MAX_VALUE;
-        for (String previewSize : COMMA_PATTERN.split(previewSizeValueString)) {
+        for (String previewSize : COMMA_PATTERN.split(sizeValueString)) {
 
             previewSize = previewSize.trim();
             int dimPosition = previewSize.indexOf('x');
@@ -174,7 +270,6 @@ final class CameraConfigurationManager {
         }
         return tenBestValue;
     }
-
 
 
     private void setZoom(Camera.Parameters parameters) {

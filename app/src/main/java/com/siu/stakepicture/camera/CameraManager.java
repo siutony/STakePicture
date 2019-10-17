@@ -16,7 +16,7 @@
 
 package com.siu.stakepicture.camera;
 
-import android.content.Context;
+import android.app.Activity;
 import android.graphics.Point;
 import android.graphics.Rect;
 import android.hardware.Camera;
@@ -39,8 +39,9 @@ public final class CameraManager {
 
     private static CameraManager cameraManager;
 
-    private final Context context;
+    private final Activity activity;
     private final CameraConfigurationManager configManager;
+
     private Camera camera;
     private AutoFocusManager autoFocusManager;
     private Rect framingRect;
@@ -57,9 +58,9 @@ public final class CameraManager {
      */
     private final PreviewCallback previewCallback;
 
-    public CameraManager(Context context) {
-        this.context = context;
-        this.configManager = new CameraConfigurationManager(context);
+    public CameraManager(Activity activity) {
+        this.activity = activity;
+        this.configManager = new CameraConfigurationManager(activity);
         previewCallback = new PreviewCallback(configManager);
     }
 
@@ -75,7 +76,7 @@ public final class CameraManager {
         Camera theCamera = camera;
 
         if (theCamera == null) {
-
+            //打开摄像头
             if (requestedCameraId >= 0) {
                 theCamera = OpenCameraInterface.open(requestedCameraId);
             } else {
@@ -87,11 +88,13 @@ public final class CameraManager {
             }
             camera = theCamera;
         }
+        //设置SurfaceHolder
         theCamera.setPreviewDisplay(holder);
 
         if (!initialized) {
             initialized = true;
-            configManager.initFromCameraParameters(theCamera);
+            //初始化相机参数，根据surfaceview大小判断最近预览尺寸（只是判断，没有实际设置）
+            configManager.initFromCameraParameters(theCamera, holder.getSurfaceFrame().width(), holder.getSurfaceFrame().height());
             if (requestedFramingRectWidth > 0 && requestedFramingRectHeight > 0) {
                 setManualFramingRect(requestedFramingRectWidth,
                         requestedFramingRectHeight);
@@ -104,7 +107,8 @@ public final class CameraManager {
         String parametersFlattened = parameters == null ? null : parameters
                 .flatten(); // Save these, temporarily
         try {
-            configManager.setDesiredCameraParameters(theCamera);
+            //设置相机参数,预览方向
+            configManager.setDesiredCameraParameters(theCamera, requestedCameraId);
         } catch (RuntimeException re) {
             // Driver failed
             Log.w(TAG,
@@ -117,7 +121,7 @@ public final class CameraManager {
                 parameters.unflatten(parametersFlattened);
                 try {
                     theCamera.setParameters(parameters);
-                    configManager.setDesiredCameraParameters(theCamera);
+                    configManager.setDesiredCameraParameters(theCamera, requestedCameraId);
                 } catch (RuntimeException re2) {
                     // Well, darn. Give up
                     Log.w(TAG,
@@ -125,7 +129,6 @@ public final class CameraManager {
                 }
             }
         }
-
     }
 
     public synchronized boolean isOpen() {
@@ -137,6 +140,7 @@ public final class CameraManager {
      */
     public synchronized void closeDriver() {
         if (camera != null) {
+            stopPreview();
             camera.release();
             camera = null;
             // Make sure to clear these each time we close the camera, so that
@@ -144,10 +148,9 @@ public final class CameraManager {
             // requested by intent is forgotten.
             framingRect = null;
             framingRectInPreview = null;
-            previewing = false;
+            initialized = false;
         }
     }
-
 
     /**
      * Asks the camera hardware to begin drawing preview frames to the screen.
@@ -174,6 +177,16 @@ public final class CameraManager {
             previewCallback.setHandler(null, 0);
             previewing = false;
         }
+    }
+
+    public Camera.CameraInfo getCameraInfo() {
+        Camera.CameraInfo info = new Camera.CameraInfo();
+        Camera.getCameraInfo(requestedCameraId, info);
+        return info;
+    }
+
+    public synchronized void takePicture(Camera.ShutterCallback shutter, Camera.PictureCallback raw, Camera.PictureCallback jpeg) {
+        camera.takePicture(shutter, raw, jpeg);
     }
 
     /**
@@ -237,7 +250,7 @@ public final class CameraManager {
                 return null;
             }
             Rect rect = new Rect(framingRect);
-            Point cameraResolution = configManager.getCameraResolution();
+            Point cameraResolution = configManager.getPreviewResolution();
             Point screenResolution = configManager.getScreenResolution();
             if (cameraResolution == null || screenResolution == null) {
                 // Called early, before init even finished
@@ -293,11 +306,11 @@ public final class CameraManager {
         }
     }
 
-    public static CameraManager get() {
-        return cameraManager;
+    public CameraConfigurationManager getConfigManager(){
+        return configManager;
     }
 
-    public Camera getCamera() {
-        return camera;
+    public static CameraManager get() {
+        return cameraManager;
     }
 }

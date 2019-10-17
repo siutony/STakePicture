@@ -7,6 +7,7 @@ import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.hardware.Camera;
 import android.net.Uri;
@@ -60,10 +61,15 @@ public class TakePhoneAct extends Activity implements SurfaceHolder.Callback {
         mShoot.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                mCameraManager.getCamera().takePicture(null, null, new Camera.PictureCallback() {
+                mCameraManager.takePicture(null, null, new Camera.PictureCallback() {
                     @Override
                     public void onPictureTaken(byte[] bytes, Camera camera) {
-                        mImgResult.setImageBitmap(BitmapFactory.decodeByteArray(bytes, 0, bytes.length));
+//                        CameraConfigurationManager configurationManager = mCameraManager.getConfigManager();
+//                        bytes = BitmapUtil.rotateYUVDegree270AndMirror(bytes, configurationManager.getPictureResolution().x, configurationManager.getPictureResolution().y);
+                        Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                        Camera.CameraInfo info = mCameraManager.getCameraInfo();
+                        bitmap = BitmapUtil.rotateBitmapByDegree(bitmap, info.orientation);
+                        mImgResult.setImageBitmap(bitmap);
                         mImgResult.setVisibility(View.VISIBLE);
                         mLayoutOpe.setVisibility(View.VISIBLE);
                         mShoot.setVisibility(View.GONE);
@@ -103,8 +109,11 @@ public class TakePhoneAct extends Activity implements SurfaceHolder.Callback {
 
     private void openCamera() {
         try {
+            //设置前置或后置摄像头
             mCameraManager.setManualCameraId(mIsFront ? Camera.CameraInfo.CAMERA_FACING_FRONT : Camera.CameraInfo.CAMERA_FACING_BACK);
+            //打开摄像头
             mCameraManager.openDriver(mSurfaceView.getHolder());
+            //开始预览
             mCameraManager.startPreview();
         } catch (Exception ioe) {
             //捕获异常,提示并推出
@@ -130,12 +139,12 @@ public class TakePhoneAct extends Activity implements SurfaceHolder.Callback {
                 boolean camera = ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.CAMERA);
                 if (!camera) { // 判断是否勾选了不再提醒，如果有勾选，提权限用途，点击确定跳转到App设置页面
                     AlertDialog.Builder builder = new AlertDialog.Builder(this);
-                    mDialog = builder.setMessage("请在设置-应用-xxx中，设置运行使用摄像头权限").setPositiveButton("取消", new DialogInterface.OnClickListener() {
+                    mDialog = builder.setMessage("请在设置-应用-xxx中，设置运行使用摄像头权限").setNegativeButton("取消", new DialogInterface.OnClickListener() {
                         @Override
                         public void onClick(DialogInterface dialog, int which) {
                             finish();
                         }
-                    }).setNegativeButton("去设置", new DialogInterface.OnClickListener() {
+                    }).setPositiveButton("去设置", new DialogInterface.OnClickListener() {
                         @Override
                         public void onClick(DialogInterface dialog, int which) {
                             goIntentSetting();
