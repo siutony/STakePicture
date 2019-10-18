@@ -64,11 +64,9 @@ public class TakePhoneAct extends Activity implements SurfaceHolder.Callback {
                 mCameraManager.takePicture(null, null, new Camera.PictureCallback() {
                     @Override
                     public void onPictureTaken(byte[] bytes, Camera camera) {
-//                        CameraConfigurationManager configurationManager = mCameraManager.getConfigManager();
-//                        bytes = BitmapUtil.rotateYUVDegree270AndMirror(bytes, configurationManager.getPictureResolution().x, configurationManager.getPictureResolution().y);
                         Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
                         Camera.CameraInfo info = mCameraManager.getCameraInfo();
-                        bitmap = BitmapUtil.rotateBitmapByDegree(bitmap, info.orientation);
+                        bitmap = BitmapUtil.rotateAndMirrorBitmap(bitmap, info.orientation, info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT);
                         mImgResult.setImageBitmap(bitmap);
                         mImgResult.setVisibility(View.VISIBLE);
                         mLayoutOpe.setVisibility(View.VISIBLE);
